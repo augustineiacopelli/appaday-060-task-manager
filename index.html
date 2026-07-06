@@ -1,0 +1,1635 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Task Manager | AppADay 060</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    position: fixed;
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
+    background: #111;
+    color: #f0f0f0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: clamp(14px, 3.5vw, 17px);
+  }
+
+  #shell {
+    position: fixed;
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #portal-bar {
+    background: #0b0b16;
+    border-bottom: 1px solid #2a2a3a;
+    padding: 6px clamp(12px, 3vw, 20px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    font-size: clamp(10px, 2.5vw, 12px);
+  }
+
+  #portal-bar a {
+    color: #888;
+    text-decoration: none;
+  }
+
+  #portal-bar a:active { color: #f4b41a; }
+
+  #portal-bar .appnum { color: #f4b41a; font-weight: 700; }
+
+  #header {
+    background: #1a1a2e;
+    border-bottom: 2px solid #f4b41a;
+    padding: clamp(10px, 2.5vw, 16px) clamp(12px, 3vw, 20px);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  #header-text h1 {
+    font-size: clamp(16px, 4.5vw, 22px);
+    font-weight: 700;
+    color: #f4b41a;
+    letter-spacing: 0.02em;
+  }
+
+  #header-text .subtitle {
+    font-size: clamp(11px, 2.8vw, 13px);
+    color: #888;
+    margin-top: 2px;
+  }
+
+  #header-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .icon-btn {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #f4b41a;
+    font-size: clamp(14px, 3.5vw, 17px);
+    padding: 6px 9px;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .icon-btn:active { background: #333; }
+
+  #add-bar {
+    background: #1a1a2e;
+    border-bottom: 1px solid #333;
+    padding: clamp(8px, 2vw, 12px) clamp(12px, 3vw, 20px);
+    flex-shrink: 0;
+  }
+
+  #add-bar .row1 { display: flex; gap: 8px; margin-bottom: 8px; }
+  #add-bar .row2 { display: flex; gap: 8px; }
+  #add-bar .row3 { display: flex; margin-top: 8px; gap: 8px; }
+
+  #task-input, #notes-input {
+    flex: 1;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #f0f0f0;
+    font-size: clamp(13px, 3.2vw, 15px);
+    padding: 10px 12px;
+    outline: none;
+  }
+
+  #task-input:focus, #notes-input:focus { border-color: #f4b41a; }
+
+  #min-input-add {
+    width: 70px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #f0f0f0;
+    font-size: clamp(12px, 3vw, 14px);
+    padding: 8px 10px;
+    outline: none;
+  }
+
+  #min-input-add:focus { border-color: #f4b41a; }
+  #min-input-add.error { border-color: #e74c3c; }
+
+  select, input[type="text"].mini {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #f0f0f0;
+    font-size: clamp(12px, 3vw, 14px);
+    padding: 8px 10px;
+    outline: none;
+    appearance: none;
+  }
+
+  select:focus, input[type="text"].mini:focus { border-color: #f4b41a; }
+
+  #priority-sel { width: 72px; }
+  #loc-input    { width: 72px; }
+  #repeats-sel  { width: 110px; }
+
+  #add-btn {
+    background: #f4b41a;
+    border: none;
+    border-radius: 8px;
+    color: #111;
+    font-size: clamp(13px, 3.5vw, 15px);
+    font-weight: 700;
+    padding: 10px 16px;
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  #add-btn:active { background: #d4960e; }
+
+  #repeat-detail, #e-repeat-detail {
+    margin-top: 6px;
+    display: none;
+  }
+
+  #repeat-detail.visible, #e-repeat-detail.visible {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  #repeat-detail select, #repeat-detail input[type="text"],
+  #e-repeat-detail select, #e-repeat-detail input[type="text"] {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #f0f0f0;
+    font-size: clamp(12px, 3vw, 14px);
+    padding: 8px 10px;
+    outline: none;
+    appearance: none;
+    flex: 1;
+    min-width: 80px;
+  }
+
+  #repeat-detail select:focus, #repeat-detail input[type="text"]:focus,
+  #e-repeat-detail select:focus, #e-repeat-detail input[type="text"]:focus {
+    border-color: #f4b41a;
+  }
+
+  #filters {
+    background: #161616;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 8px clamp(12px, 3vw, 20px);
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filter-btn {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 20px;
+    color: #ccc;
+    font-size: clamp(11px, 2.8vw, 13px);
+    padding: 5px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .filter-btn.active {
+    background: #f4b41a;
+    border-color: #f4b41a;
+    color: #111;
+    font-weight: 700;
+  }
+
+  #task-list {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: clamp(8px, 2vw, 12px);
+  }
+
+  .task-card {
+    background: #1e1e1e;
+    border: 1px solid #2e2e2e;
+    border-left: 4px solid #555;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: clamp(10px, 2.5vw, 14px) clamp(12px, 3vw, 16px);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .task-card.due-today  { border-left-color: #00e5ff; border-color: #1a3a3a; background: #151f1f; }
+  .task-card.pri-daily  { border-left-color: #e74c3c; }
+  .task-card.pri-weekly { border-left-color: #3498db; }
+  .task-card.pri-star   { border-left-color: #9b59b6; }
+  .task-card.pri-A      { border-left-color: #f39c12; }
+  .task-card.pri-B      { border-left-color: #2ecc71; }
+
+  .task-body { flex: 1; min-width: 0; }
+
+  .task-text {
+    font-size: clamp(13px, 3.3vw, 15px);
+    font-weight: 500;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .task-meta {
+    font-size: clamp(10px, 2.5vw, 12px);
+    color: #888;
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .meta-pill          { background: #2a2a2a; border-radius: 4px; padding: 2px 6px; }
+  .meta-pill.loc      { color: #7fb3f5; }
+  .meta-pill.min      { color: #a8e6a3; }
+  .meta-pill.pri      { color: #f4b41a; }
+  .meta-pill.rep      { color: #f5a3a3; }
+  .meta-pill.cost     { color: #f5d76e; }
+  .meta-pill.due      { color: #00e5ff; font-weight: 700; }
+  .meta-pill.snoozed  { color: #aaa; font-style: italic; }
+
+  .task-notes {
+    font-size: clamp(10px, 2.5vw, 12px);
+    color: #666;
+    margin-top: 5px;
+    font-style: italic;
+    word-break: break-word;
+  }
+
+  .card-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .edit-btn, .complete-btn, .done-btn, .snooze-btn, .copy-btn, .ics-btn, .del-recurring-btn {
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 6px;
+    font-size: clamp(14px, 3.5vw, 17px);
+    padding: 3px 8px;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .edit-btn          { color: #7fb3f5; }
+  .complete-btn      { color: #2ecc71; }
+  .done-btn          { color: #2ecc71; }
+  .snooze-btn        { color: #f4b41a; font-size: clamp(12px, 3vw, 14px); }
+  .copy-btn          { color: #a8e6a3; font-size: clamp(11px, 2.8vw, 13px); }
+  .ics-btn           { color: #c8a8f0; font-size: clamp(11px, 2.8vw, 13px); }
+  .del-recurring-btn { color: #e74c3c; font-size: clamp(12px, 3vw, 14px); }
+
+  .edit-btn:active          { background: #1a3a5c; border-color: #7fb3f5; }
+  .complete-btn:active      { background: #1a3a1a; border-color: #2ecc71; }
+  .done-btn:active          { background: #1a3a1a; border-color: #2ecc71; }
+  .snooze-btn:active        { background: #2a2000; border-color: #f4b41a; }
+  .copy-btn:active          { background: #1a3a1a; border-color: #a8e6a3; }
+  .ics-btn:active           { background: #2a1a3a; border-color: #c8a8f0; }
+  .del-recurring-btn:active { background: #3a0000; border-color: #e74c3c; }
+
+  #status {
+    text-align: center;
+    font-size: clamp(11px, 2.8vw, 13px);
+    color: #f4b41a;
+    padding: 6px;
+    flex-shrink: 0;
+    min-height: 24px;
+    background: #111;
+  }
+
+  #loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #888;
+    font-size: clamp(13px, 3.5vw, 16px);
+    text-align: center;
+    padding: 20px;
+  }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.78);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal-box {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 14px;
+    padding: 20px 18px 18px;
+    width: min(380px, 94vw);
+    max-height: 88svh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-box h2 {
+    font-size: clamp(14px, 4vw, 17px);
+    color: #f4b41a;
+    margin-bottom: 14px;
+  }
+
+  .modal-box p.hint {
+    font-size: clamp(11px, 2.8vw, 13px);
+    color: #888;
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+
+  .field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+
+  .field-row label {
+    font-size: clamp(10px, 2.6vw, 12px);
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .field-row input,
+  .field-row select,
+  .field-row textarea {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #f0f0f0;
+    font-size: clamp(13px, 3.2vw, 15px);
+    padding: 9px 11px;
+    outline: none;
+    width: 100%;
+    font-family: inherit;
+    appearance: none;
+  }
+
+  .field-row input[type="date"] { color-scheme: dark; }
+
+  .field-row input:focus,
+  .field-row select:focus,
+  .field-row textarea:focus { border-color: #f4b41a; }
+
+  .field-row input.error { border-color: #e74c3c; }
+
+  .field-row textarea { resize: vertical; min-height: 70px; }
+
+  .field-row-h { display: flex; gap: 10px; }
+  .field-row-h .field-row { flex: 1; }
+
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+
+  .mbtn {
+    flex: 1;
+    border: none;
+    border-radius: 8px;
+    font-size: clamp(13px, 3.5vw, 15px);
+    font-weight: 700;
+    padding: 12px;
+    cursor: pointer;
+  }
+
+  .mbtn-cancel   { background: #333; color: #ccc; }
+  .mbtn-save     { background: #f4b41a; color: #111; }
+  .mbtn-unsnooze { background: #555; color: #f0f0f0; font-size: clamp(11px, 2.8vw, 13px); }
+  .mbtn-danger   { background: #c0392b; color: #fff; }
+
+  .confirm-box {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 12px;
+    padding: 24px 20px;
+    width: min(320px, 88vw);
+    text-align: center;
+  }
+
+  .confirm-box p {
+    font-size: clamp(13px, 3.5vw, 15px);
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+
+  .cbtn {
+    border: none;
+    border-radius: 8px;
+    font-size: clamp(13px, 3.5vw, 15px);
+    font-weight: 700;
+    padding: 11px 22px;
+    cursor: pointer;
+    margin: 0 6px;
+  }
+
+  .cbtn-cancel { background: #333; color: #ccc; }
+  .cbtn-delete { background: #c0392b; color: #fff; }
+
+  .snooze-box {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 14px;
+    padding: 22px 20px 18px;
+    width: min(320px, 92vw);
+    text-align: center;
+  }
+
+  .snooze-box h3 {
+    font-size: clamp(14px, 4vw, 16px);
+    color: #f4b41a;
+    margin-bottom: 6px;
+  }
+
+  .snooze-box p {
+    font-size: clamp(11px, 2.8vw, 13px);
+    color: #888;
+    margin-bottom: 14px;
+    line-height: 1.4;
+  }
+
+  .snooze-box input[type="date"] {
+    width: 100%;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #f0f0f0;
+    font-size: clamp(13px, 3.2vw, 15px);
+    padding: 10px 12px;
+    outline: none;
+    color-scheme: dark;
+    margin-bottom: 16px;
+  }
+
+  .snooze-box input[type="date"]:focus { border-color: #f4b41a; }
+
+  .snooze-actions { display: flex; gap: 10px; }
+  .snooze-actions .mbtn { flex: 1; }
+
+  #file-input { display: none; }
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="portal-bar">
+    <span><span class="appnum">#060</span> Task Manager</span>
+    <a href="https://augustineiacopelli.github.io/appaday/">&larr; AppADay Portal</a>
+  </div>
+
+  <div id="header">
+    <div id="header-text">
+      <h1>Augustine's Tasks</h1>
+      <div class="subtitle" id="task-count">Loading…</div>
+    </div>
+    <div id="header-actions">
+      <button class="icon-btn" id="export-btn" title="Export backup">&#8681;</button>
+      <button class="icon-btn" id="import-btn" title="Import backup">&#8679;</button>
+    </div>
+    <input type="file" id="file-input" accept="application/json">
+  </div>
+
+  <div id="add-bar">
+    <div class="row1">
+      <input id="task-input" type="text" placeholder="New task description…">
+      <button id="add-btn" onclick="submitAdd()">Add</button>
+    </div>
+    <div class="row2">
+      <select id="priority-sel">
+        <option value="*">*</option>
+        <option value="Daily">Daily</option>
+        <option value="Weekly (Mondays)">Mon</option>
+        <option value="Weekly (Tuesdays)">Tue</option>
+        <option value="A">A</option>
+        <option value="B">B</option>
+      </select>
+      <input id="loc-input" type="text" class="mini" placeholder="Loc">
+      <input id="min-input-add" type="text" placeholder="Min*">
+      <select id="repeats-sel" onchange="onRepeatChange('repeats-sel','repeat-detail')">
+        <option value="N">No rep</option>
+        <option value="Daily">Daily</option>
+        <option value="Weekly">Weekly</option>
+        <option value="Monthly-date">Monthly (date)</option>
+        <option value="Monthly-week">Monthly (weekday)</option>
+        <option value="Yearly">Yearly</option>
+      </select>
+    </div>
+    <div id="repeat-detail"></div>
+    <div class="row3">
+      <input id="notes-input" type="text" placeholder="Notes (optional)…">
+    </div>
+  </div>
+
+  <div id="filters">
+    <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
+    <button class="filter-btn" onclick="setFilter('Daily', this)">Daily</button>
+    <button class="filter-btn" onclick="setFilter('Weekly', this)">Weekly</button>
+    <button class="filter-btn" onclick="setFilter('*', this)">*</button>
+    <button class="filter-btn" onclick="setFilter('A', this)">A</button>
+    <button class="filter-btn" onclick="setFilter('B', this)">B</button>
+    <button class="filter-btn" onclick="setFilter('OT', this)">OT</button>
+    <button class="filter-btn" onclick="setFilter('H', this)">Home</button>
+    <button class="filter-btn" onclick="setFilter('snoozed', this)">&#128564; Snoozed</button>
+  </div>
+
+  <div id="task-list"><div id="loading">Loading tasks…</div></div>
+  <div id="status"></div>
+</div>
+
+<!-- Edit Modal -->
+<div id="edit-overlay" class="overlay" style="display:none;">
+  <div class="modal-box">
+    <h2>Edit Task</h2>
+    <div class="field-row">
+      <label>Task</label>
+      <textarea id="e-task" rows="3"></textarea>
+    </div>
+    <div class="field-row-h">
+      <div class="field-row">
+        <label>Priority</label>
+        <select id="e-priority">
+          <option value="*">*</option>
+          <option value="Daily">Daily</option>
+          <option value="Weekly (Mondays)">Weekly (Mon)</option>
+          <option value="Weekly (Tuesdays)">Weekly (Tue)</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>Location</label>
+        <input id="e-location" type="text">
+      </div>
+    </div>
+    <div class="field-row-h">
+      <div class="field-row">
+        <label>Minutes *</label>
+        <input id="e-minutes" type="text">
+      </div>
+      <div class="field-row">
+        <label>Repeats</label>
+        <select id="e-repeats" onchange="onRepeatChange('e-repeats','e-repeat-detail')">
+          <option value="N">No</option>
+          <option value="Daily">Daily</option>
+          <option value="Weekly">Weekly</option>
+          <option value="Monthly-date">Monthly (date)</option>
+          <option value="Monthly-week">Monthly (weekday)</option>
+          <option value="Yearly">Yearly</option>
+        </select>
+        <div id="e-repeat-detail"></div>
+      </div>
+      <div class="field-row">
+        <label>Cost $</label>
+        <select id="e-cost">
+          <option value="N">N</option>
+          <option value="Y">Y</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-row">
+      <label>Snooze Until</label>
+      <input id="e-snooze-date" type="date">
+      <button class="mbtn mbtn-unsnooze" style="margin-top:6px;" onclick="clearSnoozeInModal()">Clear Snooze</button>
+    </div>
+    <div class="field-row">
+      <label>Notes</label>
+      <textarea id="e-notes" rows="3"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="mbtn mbtn-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="mbtn mbtn-save" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Confirm Modal -->
+<div id="import-overlay" class="overlay" style="display:none;">
+  <div class="modal-box">
+    <h2>Import Backup</h2>
+    <p class="hint" id="import-summary">Reading file…</p>
+    <div class="modal-actions">
+      <button class="mbtn mbtn-save" id="import-merge-btn">Merge</button>
+      <button class="mbtn mbtn-danger" id="import-replace-btn">Replace All</button>
+    </div>
+    <button class="mbtn mbtn-cancel" id="import-cancel-btn" style="width:100%; margin-top:10px;">Cancel</button>
+  </div>
+</div>
+
+<script>
+  // -- STORAGE --
+  // Everything lives in one localStorage key as a single JSON blob:
+  // { version, nextId, tasks: [{id, priority, location, task, cost, minutes,
+  //   repeats, notes, dateCreated, doneDates: {"YYYY-MM-DD":true}, snoozeUntil }] }
+  // Export/Import gives a manual JSON backup so the list survives a browser
+  // reset, a device change, or accidental storage clearing.
+
+  var STORAGE_KEY = 'appaday060_taskmanager';
+  var appData = { version: 1, nextId: 1, tasks: [] };
+  var currentFilter = 'all';
+  var editingId = -1;
+  var pendingImportData = null;
+
+  var DAYS     = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var ORDINALS = ['1st','2nd','3rd','4th','5th'];
+
+  function loadData() {
+    try {
+      var raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.tasks)) {
+          appData = parsed;
+          if (typeof appData.nextId !== 'number') appData.nextId = computeNextId();
+          return true;
+        }
+      }
+    } catch (e) {
+      setStatus('Could not read saved tasks. Starting fresh.');
+    }
+    return false;
+  }
+
+  function saveData() {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+      return true;
+    } catch (e) {
+      setStatus('Warning: could not save. Export a backup now to be safe.');
+      return false;
+    }
+  }
+
+  function computeNextId() {
+    var max = 0;
+    for (var i = 0; i < appData.tasks.length; i++) {
+      if (appData.tasks[i].id > max) max = appData.tasks[i].id;
+    }
+    return max + 1;
+  }
+
+  function findTask(id) {
+    for (var i = 0; i < appData.tasks.length; i++) {
+      if (appData.tasks[i].id === id) return appData.tasks[i];
+    }
+    return null;
+  }
+
+  // -- DATE HELPERS --
+
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2,'0') + '-' +
+      String(d.getDate()).padStart(2,'0');
+  }
+
+  function formatDisplayDate(dateStr) {
+    if (!dateStr) return '';
+    var parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    return MONTHS[parseInt(parts[1]) - 1] + ' ' + parseInt(parts[2]) + ', ' + parts[0];
+  }
+
+  function getDueDateStr(repeats) {
+    if (!repeats || repeats === 'N') return '';
+    var now = new Date();
+    var y = now.getFullYear(), m = now.getMonth(), day = now.getDate(), dow = now.getDay();
+
+    if (repeats === 'Daily') return todayStr();
+
+    if (repeats.indexOf('Weekly (') === 0) {
+      var dayName = repeats.replace('Weekly (','').replace(')','').replace(/s$/,'');
+      var idx = DAYS.indexOf(dayName);
+      return (idx !== -1 && idx === dow) ? todayStr() : '';
+    }
+
+    if (repeats.indexOf('Monthly (every') === 0) {
+      var match = repeats.match(/every (\d+)/);
+      return (match && parseInt(match[1]) === day) ? todayStr() : '';
+    }
+
+    if (repeats.indexOf('Monthly (') === 0) {
+      var match = repeats.match(/\((\w+) (\w+)\)/);
+      if (!match) return '';
+      var ordMap = {'1st':1,'2nd':2,'3rd':3,'4th':4,'5th':5};
+      var targetOrd = ordMap[match[1]], targetDay = DAYS.indexOf(match[2]);
+      if (!targetOrd || targetDay === -1) return '';
+      if (new Date(y, m, day).getDay() === targetDay) {
+        var nth = 0;
+        for (var d2 = 1; d2 <= day; d2++) {
+          if (new Date(y, m, d2).getDay() === targetDay) nth++;
+        }
+        if (nth === targetOrd) return todayStr();
+      }
+      return '';
+    }
+
+    if (repeats.indexOf('Yearly (') === 0) {
+      var match = repeats.match(/\((\w+) (\d+)/);
+      if (!match) return '';
+      var monthIdx = MONTHS.indexOf(match[1]), dayNum = parseInt(match[2]);
+      return (monthIdx === m && dayNum === day) ? todayStr() : '';
+    }
+
+    return '';
+  }
+
+  function isRepeatDueToday(t) {
+    return getDueDateStr(t.repeats) === todayStr() && todayStr() !== '';
+  }
+
+  function ordSuffix(i) {
+    i = parseInt(i);
+    return (i===1||i===21||i===31)?'st':(i===2||i===22)?'nd':(i===3||i===23)?'rd':'th';
+  }
+
+  // -- REPEAT UI --
+  function onRepeatChange(selId, detailId) {
+    var val    = document.getElementById(selId).value;
+    var detail = document.getElementById(detailId);
+    detail.innerHTML = '';
+    detail.className = '';
+
+    if (val === 'Weekly') {
+      detail.className = 'visible';
+      var s = document.createElement('select');
+      s.id = detailId + '-day';
+      DAYS.forEach(function(d) {
+        var o = document.createElement('option');
+        o.value = d; o.textContent = d; s.appendChild(o);
+      });
+      detail.appendChild(s);
+
+    } else if (val === 'Monthly-date') {
+      detail.className = 'visible';
+      var s = document.createElement('select');
+      s.id = detailId + '-mday';
+      for (var i = 1; i <= 31; i++) {
+        var o = document.createElement('option');
+        o.value = i; o.textContent = i + ordSuffix(i); s.appendChild(o);
+      }
+      detail.appendChild(s);
+
+    } else if (val === 'Monthly-week') {
+      detail.className = 'visible';
+      var s1 = document.createElement('select');
+      s1.id = detailId + '-ord';
+      ORDINALS.forEach(function(ord) {
+        var o = document.createElement('option');
+        o.value = ord; o.textContent = ord; s1.appendChild(o);
+      });
+      var s2 = document.createElement('select');
+      s2.id = detailId + '-wday';
+      DAYS.forEach(function(d) {
+        var o = document.createElement('option');
+        o.value = d; o.textContent = d; s2.appendChild(o);
+      });
+      detail.appendChild(s1);
+      detail.appendChild(s2);
+
+    } else if (val === 'Yearly') {
+      detail.className = 'visible';
+      var s1 = document.createElement('select');
+      s1.id = detailId + '-month';
+      MONTHS.forEach(function(m) {
+        var o = document.createElement('option');
+        o.value = m; o.textContent = m; s1.appendChild(o);
+      });
+      var s2 = document.createElement('select');
+      s2.id = detailId + '-yday';
+      for (var i = 1; i <= 31; i++) {
+        var o = document.createElement('option');
+        o.value = i; o.textContent = i + ordSuffix(i); s2.appendChild(o);
+      }
+      detail.appendChild(s1);
+      detail.appendChild(s2);
+    }
+  }
+
+  function buildRepeatValue(selId, detailId) {
+    var val = document.getElementById(selId).value;
+    if (val === 'N' || val === 'Daily') return val;
+
+    function g(suffix) {
+      var el = document.getElementById(detailId + suffix);
+      return el ? el.value : '';
+    }
+
+    if (val === 'Weekly') {
+      var day = g('-day');
+      return day ? 'Weekly (' + day + 's)' : 'Weekly';
+    }
+    if (val === 'Monthly-date') {
+      var mday = g('-mday');
+      return mday ? 'Monthly (every ' + mday + ordSuffix(mday) + ')' : 'Monthly';
+    }
+    if (val === 'Monthly-week') {
+      var ord = g('-ord'), wday = g('-wday');
+      return (ord && wday) ? 'Monthly (' + ord + ' ' + wday + ')' : 'Monthly';
+    }
+    if (val === 'Yearly') {
+      var month = g('-month'), yday = g('-yday');
+      return (month && yday) ? 'Yearly (' + month + ' ' + yday + ordSuffix(yday) + ')' : 'Yearly';
+    }
+    return val;
+  }
+
+  function parseRepeatToSelect(stored, selId, detailId) {
+    if (!stored || stored === 'N') { setSelectValue(selId, 'N'); return; }
+    if (stored === 'Daily')        { setSelectValue(selId, 'Daily'); return; }
+
+    if (stored.indexOf('Weekly') === 0) {
+      setSelectValue(selId, 'Weekly');
+      onRepeatChange(selId, detailId);
+      var m = stored.match(/\((\w+?)s?\)$/);
+      if (m) setSelectValue(detailId + '-day', m[1]);
+      return;
+    }
+    if (stored.indexOf('Monthly (every') === 0) {
+      setSelectValue(selId, 'Monthly-date');
+      onRepeatChange(selId, detailId);
+      var m = stored.match(/every (\d+)/);
+      if (m) setSelectValue(detailId + '-mday', m[1]);
+      return;
+    }
+    if (stored.indexOf('Monthly (') === 0) {
+      setSelectValue(selId, 'Monthly-week');
+      onRepeatChange(selId, detailId);
+      var m = stored.match(/\((\w+) (\w+)\)/);
+      if (m) { setSelectValue(detailId + '-ord', m[1]); setSelectValue(detailId + '-wday', m[2]); }
+      return;
+    }
+    if (stored.indexOf('Yearly') === 0) {
+      setSelectValue(selId, 'Yearly');
+      onRepeatChange(selId, detailId);
+      var m = stored.match(/\((\w+) (\d+)/);
+      if (m) { setSelectValue(detailId + '-month', m[1]); setSelectValue(detailId + '-yday', m[2]); }
+      return;
+    }
+    setSelectValue(selId, 'N');
+  }
+
+  // -- INIT --
+  function init() {
+    var had = loadData();
+    renderTasks();
+    if (!had) setStatus('Welcome. Add your first task below, or import a backup.');
+
+    document.getElementById('export-btn').addEventListener('click', exportBackup);
+    document.getElementById('import-btn').addEventListener('click', function() {
+      document.getElementById('file-input').click();
+    });
+    document.getElementById('file-input').addEventListener('change', handleFileSelect);
+  }
+
+  // -- RENDER --
+  function priClass(p) {
+    var lp = (p || '').toLowerCase();
+    if (lp.indexOf('daily') > -1)  return 'pri-daily';
+    if (lp.indexOf('weekly') > -1) return 'pri-weekly';
+    if (p === '*') return 'pri-star';
+    if (p === 'A') return 'pri-A';
+    if (p === 'B') return 'pri-B';
+    return '';
+  }
+
+  function getPriorityOrder(p) {
+    var lp = (p || '').toLowerCase();
+    if (lp.indexOf('daily') > -1)  return 1;
+    if (lp.indexOf('weekly') > -1) return 2;
+    if (p === '*') return 3;
+    if (p === 'A') return 4;
+    if (p === 'B') return 5;
+    return 6;
+  }
+
+  function isTodaysDay(priority) {
+    var days = ['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'];
+    var todayName = days[new Date().getDay()];
+    var lp = (priority || '').toLowerCase();
+    for (var i = 0; i < days.length; i++) {
+      if (lp.indexOf(days[i].toLowerCase()) > -1) {
+        return days[i] === todayName;
+      }
+    }
+    return true;
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
+  function renderTasks() {
+    var list  = document.getElementById('task-list');
+    var today = todayStr();
+
+    var filtered = appData.tasks.filter(function(t) {
+      if (!isTodaysDay(t.priority)) return false;
+
+      if (t.repeats && t.repeats.indexOf('Weekly (') === 0) {
+        if (getDueDateStr(t.repeats) !== today) return false;
+      }
+
+      var snoozed = !!(t.snoozeUntil && today < t.snoozeUntil);
+      if (currentFilter === 'snoozed') return snoozed;
+      if (snoozed) return false;
+
+      var dueStr = getDueDateStr(t.repeats);
+      if (dueStr && t.doneDates && t.doneDates[dueStr]) return false;
+
+      if (currentFilter === 'all')    return true;
+      if (currentFilter === 'Weekly') return (t.priority || '').toLowerCase().indexOf('weekly') > -1;
+      if (currentFilter === 'OT')     return t.location === 'OT';
+      if (currentFilter === 'H')      return t.location === 'H';
+      return t.priority === currentFilter;
+    });
+
+    filtered.sort(function(a, b) {
+      if (currentFilter === 'snoozed') {
+        var sa = a.snoozeUntil || '', sb = b.snoozeUntil || '';
+        return sa < sb ? -1 : sa > sb ? 1 : 0;
+      }
+      var aDue = isRepeatDueToday(a) ? 0 : 1;
+      var bDue = isRepeatDueToday(b) ? 0 : 1;
+      if (aDue !== bDue) return aDue - bDue;
+      var priDiff = getPriorityOrder(a.priority) - getPriorityOrder(b.priority);
+      if (priDiff !== 0) return priDiff;
+      var dateA = a.dateCreated || '', dateB = b.dateCreated || '';
+      if (dateA < dateB) return 1;
+      if (dateA > dateB) return -1;
+      return 0;
+    });
+
+    document.getElementById('task-count').textContent =
+      filtered.length + ' task' + (filtered.length !== 1 ? 's' : '') +
+      (currentFilter !== 'all' ? ' (filtered)' : '');
+
+    if (!filtered.length) {
+      list.innerHTML = '<div id="loading">No tasks found. Add one below, or tap &#8679; to import a backup.</div>';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+      var t = filtered[i];
+      var dueStr      = getDueDateStr(t.repeats);
+      var dueToday    = dueStr === today && dueStr !== '';
+      var isRepeating = t.repeats && t.repeats !== 'N';
+      var snoozeUntil = t.snoozeUntil || '';
+      var isSnoozedNow = !!(snoozeUntil && today < snoozeUntil);
+
+      var cardClass = dueToday ? 'task-card due-today' : 'task-card ' + priClass(t.priority);
+
+      var notesHtml  = (t.notes && t.notes !== 'N/A')
+        ? '<div class="task-notes">' + escHtml(t.notes) + '</div>' : '';
+      var repHtml    = isRepeating
+        ? '<span class="meta-pill rep">&#8635; ' + escHtml(t.repeats) + '</span>' : '';
+      var costHtml   = t.cost === 'Y'
+        ? '<span class="meta-pill cost">$</span>' : '';
+      var locHtml    = t.location
+        ? '<span class="meta-pill loc">' + escHtml(t.location) + '</span>' : '';
+      var minHtml    = t.minutes
+        ? '<span class="meta-pill min">' + escHtml(t.minutes) + ' min</span>' : '';
+      var dueHtml    = dueToday
+        ? '<span class="meta-pill due">DUE TODAY</span>' : '';
+      var snoozeHtml = isSnoozedNow
+        ? '<span class="meta-pill snoozed">&#128564; until ' + escHtml(formatDisplayDate(snoozeUntil)) + '</span>' : '';
+
+      var actionsHtml = '<div class="card-actions">' +
+        '<button class="edit-btn" data-id="' + t.id + '">&#9998;</button>';
+
+      if (dueToday) {
+        actionsHtml += '<button class="done-btn" data-id="' + t.id + '" data-due="' + dueStr + '">&#10003;</button>';
+        actionsHtml += '<button class="snooze-btn" data-id="' + t.id + '">&#128564;</button>';
+        actionsHtml += '<button class="del-recurring-btn" data-id="' + t.id + '" data-task="' + escHtml(t.task) + '">&#128465;</button>';
+      } else if (isRepeating) {
+        actionsHtml += '<button class="snooze-btn" data-id="' + t.id + '">&#128564;</button>';
+        actionsHtml += '<button class="del-recurring-btn" data-id="' + t.id + '" data-task="' + escHtml(t.task) + '">&#128465;</button>';
+      } else {
+        actionsHtml += '<button class="complete-btn" data-id="' + t.id + '" data-task="' + escHtml(t.task) + '">&#10003;</button>';
+        actionsHtml += '<button class="snooze-btn" data-id="' + t.id + '">&#128564;</button>';
+      }
+
+      actionsHtml +=
+        '<button class="copy-btn" data-id="' + t.id + '">&#8983;</button>' +
+        '<button class="ics-btn"  data-id="' + t.id + '">&#128197;</button>' +
+        '</div>';
+
+      html += '<div class="' + cardClass + '">' +
+        '<div class="task-body">' +
+          '<div class="task-text">' + escHtml(t.task) + '</div>' +
+          '<div class="task-meta">' +
+            '<span class="meta-pill pri">' + escHtml(t.priority || '\u2014') + '</span>' +
+            locHtml + minHtml + repHtml + costHtml + dueHtml + snoozeHtml +
+          '</div>' +
+          notesHtml +
+        '</div>' +
+        actionsHtml +
+      '</div>';
+    }
+    list.innerHTML = html;
+
+    list.querySelectorAll('.edit-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        openEditModal(parseInt(this.getAttribute('data-id')));
+      });
+    });
+
+    list.querySelectorAll('.done-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id     = parseInt(this.getAttribute('data-id'));
+        var dueStr = this.getAttribute('data-due');
+        var t = findTask(id);
+        if (t) {
+          if (!t.doneDates) t.doneDates = {};
+          t.doneDates[dueStr] = true;
+          saveData();
+        }
+        renderTasks();
+        setStatus('Task marked complete for today.');
+      });
+    });
+
+    list.querySelectorAll('.complete-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        confirmDelete(
+          parseInt(this.getAttribute('data-id')),
+          this.getAttribute('data-task')
+        );
+      });
+    });
+
+    list.querySelectorAll('.del-recurring-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        confirmDelete(
+          parseInt(this.getAttribute('data-id')),
+          this.getAttribute('data-task')
+        );
+      });
+    });
+
+    list.querySelectorAll('.snooze-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        openSnoozeModal(parseInt(this.getAttribute('data-id')));
+      });
+    });
+
+    list.querySelectorAll('.copy-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = parseInt(this.getAttribute('data-id'));
+        var t  = findTask(id);
+        if (!t) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(t.task).then(function() {
+            setStatus('Task text copied.');
+          }).catch(function() { fallbackCopy(t.task); });
+        } else {
+          fallbackCopy(t.task);
+        }
+      });
+    });
+
+    list.querySelectorAll('.ics-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = parseInt(this.getAttribute('data-id'));
+        var t  = findTask(id);
+        if (!t) return;
+        downloadIcs(t);
+      });
+    });
+  }
+
+  function setFilter(f, el) {
+    currentFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+    el.classList.add('active');
+    renderTasks();
+  }
+
+  // -- SNOOZE MODAL --
+  function openSnoozeModal(taskId) {
+    var t = findTask(taskId);
+    if (!t) return;
+
+    var existing = t.snoozeUntil || '';
+    var tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    var defaultDate = tomorrow.getFullYear() + '-' +
+      String(tomorrow.getMonth()+1).padStart(2,'0') + '-' +
+      String(tomorrow.getDate()).padStart(2,'0');
+
+    var overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.id = 'snooze-overlay';
+    overlay.innerHTML =
+      '<div class="snooze-box">' +
+        '<h3>Snooze Task</h3>' +
+        '<p>' + escHtml(t.task.substring(0,60)) + (t.task.length>60?'\u2026':'') + '</p>' +
+        '<input type="date" id="snooze-date-input" value="' + (existing || defaultDate) + '" min="' + todayStr() + '">' +
+        '<div class="snooze-actions">' +
+          '<button class="mbtn mbtn-cancel" id="snooze-cancel-btn">Cancel</button>' +
+          (existing ? '<button class="mbtn mbtn-unsnooze" id="snooze-clear-btn">Clear</button>' : '') +
+          '<button class="mbtn mbtn-save" id="snooze-save-btn">Snooze</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+
+    document.getElementById('snooze-cancel-btn').addEventListener('click', function() {
+      overlay.parentNode.removeChild(overlay);
+    });
+
+    document.getElementById('snooze-save-btn').addEventListener('click', function() {
+      var dateVal = document.getElementById('snooze-date-input').value;
+      if (!dateVal || dateVal <= todayStr()) {
+        setStatus('Snooze date must be in the future.');
+        return;
+      }
+      overlay.parentNode.removeChild(overlay);
+      t.snoozeUntil = dateVal;
+      saveData();
+      renderTasks();
+      setStatus('Task snoozed until ' + formatDisplayDate(dateVal) + '.');
+    });
+
+    var clearBtn = document.getElementById('snooze-clear-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+        overlay.parentNode.removeChild(overlay);
+        t.snoozeUntil = '';
+        saveData();
+        renderTasks();
+        setStatus('Snooze cleared.');
+      });
+    }
+  }
+
+  // -- EDIT MODAL --
+  function openEditModal(taskId) {
+    var t = findTask(taskId);
+    if (!t) return;
+
+    editingId = taskId;
+
+    document.getElementById('e-task').value     = t.task;
+    document.getElementById('e-location').value = t.location;
+    document.getElementById('e-minutes').value  = t.minutes;
+    document.getElementById('e-notes').value    = t.notes;
+    document.getElementById('e-minutes').classList.remove('error');
+    document.getElementById('e-snooze-date').value = t.snoozeUntil || '';
+
+    setSelectValue('e-priority', t.priority);
+    setSelectValue('e-cost',     t.cost);
+    parseRepeatToSelect(t.repeats, 'e-repeats', 'e-repeat-detail');
+
+    document.getElementById('edit-overlay').style.display = 'flex';
+
+    var ta = document.getElementById('e-task');
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
+
+  function clearSnoozeInModal() {
+    document.getElementById('e-snooze-date').value = '';
+  }
+
+  function setSelectValue(id, val) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === val) { sel.selectedIndex = i; return; }
+    }
+  }
+
+  function closeEditModal() {
+    document.getElementById('edit-overlay').style.display = 'none';
+    editingId = -1;
+  }
+
+  function saveEdit() {
+    if (editingId < 0) return;
+    var t = findTask(editingId);
+    if (!t) return;
+
+    var minutesEl = document.getElementById('e-minutes');
+    var minutes   = minutesEl.value.trim();
+    if (!minutes) {
+      minutesEl.classList.add('error');
+      minutesEl.focus();
+      setStatus('Minutes is required.');
+      return;
+    }
+    minutesEl.classList.remove('error');
+
+    var taskEl = document.getElementById('e-task');
+    if (!taskEl.value.trim()) {
+      taskEl.classList.add('error');
+      taskEl.focus();
+      setStatus('Task text cannot be empty.');
+      return;
+    }
+
+    var snoozeVal = document.getElementById('e-snooze-date').value;
+    t.snoozeUntil = (snoozeVal && snoozeVal > todayStr()) ? snoozeVal : '';
+
+    t.task     = taskEl.value.trim();
+    t.priority = document.getElementById('e-priority').value;
+    t.location = document.getElementById('e-location').value.trim();
+    t.minutes  = minutes;
+    t.repeats  = buildRepeatValue('e-repeats', 'e-repeat-detail');
+    t.cost     = document.getElementById('e-cost').value;
+    t.notes    = document.getElementById('e-notes').value.trim() || 'N/A';
+
+    saveData();
+    closeEditModal();
+    renderTasks();
+    setStatus('Task updated.');
+  }
+
+  // -- DELETE --
+  function confirmDelete(taskId, taskText) {
+    var overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    var preview = taskText.length > 80 ? taskText.substring(0,80) + '\u2026' : taskText;
+    overlay.innerHTML = '<div class="confirm-box">' +
+      '<p>Delete this task?<br><br><strong>' + escHtml(preview) + '</strong></p>' +
+      '<button class="cbtn cbtn-cancel">Cancel</button>' +
+      '<button class="cbtn cbtn-delete">Delete</button>' +
+      '</div>';
+    overlay.querySelector('.cbtn-cancel').addEventListener('click', function() {
+      overlay.parentNode.removeChild(overlay);
+    });
+    overlay.querySelector('.cbtn-delete').addEventListener('click', function() {
+      overlay.parentNode.removeChild(overlay);
+      doDelete(taskId);
+    });
+    document.body.appendChild(overlay);
+  }
+
+  function doDelete(taskId) {
+    appData.tasks = appData.tasks.filter(function(t) { return t.id !== taskId; });
+    saveData();
+    renderTasks();
+    setStatus('Task deleted.');
+  }
+
+  // -- ADD --
+  function submitAdd() {
+    var taskEl    = document.getElementById('task-input');
+    var minutesEl = document.getElementById('min-input-add');
+    var taskText  = taskEl.value.trim();
+    var minutes   = minutesEl.value.trim();
+
+    if (!taskText) {
+      taskEl.style.borderColor = '#e74c3c';
+      taskEl.focus();
+      setStatus('Task description is required.');
+      return;
+    }
+    taskEl.style.borderColor = '';
+
+    if (!minutes) {
+      minutesEl.classList.add('error');
+      minutesEl.focus();
+      setStatus('Minutes is required.');
+      return;
+    }
+    minutesEl.classList.remove('error');
+
+    var newTask = {
+      id:          appData.nextId++,
+      priority:    document.getElementById('priority-sel').value,
+      location:    document.getElementById('loc-input').value.trim(),
+      task:        taskText,
+      cost:        'N',
+      minutes:     minutes,
+      repeats:     buildRepeatValue('repeats-sel', 'repeat-detail'),
+      notes:       document.getElementById('notes-input').value.trim() || 'N/A',
+      dateCreated: (new Date()).toISOString().slice(0,19).replace('T',' '),
+      doneDates:   {},
+      snoozeUntil: ''
+    };
+
+    appData.tasks.push(newTask);
+    saveData();
+
+    taskEl.value    = '';
+    minutesEl.value = '';
+    document.getElementById('loc-input').value   = '';
+    document.getElementById('notes-input').value = '';
+    document.getElementById('repeats-sel').value = 'N';
+    onRepeatChange('repeats-sel', 'repeat-detail');
+
+    renderTasks();
+    setStatus('Task added.');
+  }
+
+  // -- COPY FALLBACK --
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity  = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      setStatus('Task text copied.');
+    } catch(e) {
+      setStatus('Copy failed \u2014 try long-pressing the task text.');
+    }
+    ta.parentNode.removeChild(ta);
+  }
+
+  // -- ICS DOWNLOAD --
+  function downloadIcs(t) {
+    var now     = new Date();
+    var minutes = parseInt(t.minutes) || 30;
+    var end     = new Date(now.getTime() + minutes * 60000);
+
+    function pad(n) { return String(n).padStart(2,'0'); }
+
+    function toIcsDate(d) {
+      return d.getFullYear() +
+        pad(d.getMonth() + 1) +
+        pad(d.getDate()) + 'T' +
+        pad(d.getHours()) +
+        pad(d.getMinutes()) +
+        pad(d.getSeconds());
+    }
+
+    function icsEscape(s) {
+      return String(s)
+        .replace(/\\/g, '\\\\')
+        .replace(/;/g,  '\\;')
+        .replace(/,/g,  '\\,')
+        .replace(/\n/g, '\\n');
+    }
+
+    var uid = 'task-' + t.id + '-' + now.getTime() + '@appaday060';
+
+    var lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//AppADay 060 Task Manager//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VTIMEZONE',
+      'TZID:America/Chicago',
+      'BEGIN:DAYLIGHT',
+      'TZOFFSETFROM:-0600',
+      'TZOFFSETTO:-0500',
+      'TZNAME:CDT',
+      'DTSTART:19700308T020000',
+      'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+      'END:DAYLIGHT',
+      'BEGIN:STANDARD',
+      'TZOFFSETFROM:-0500',
+      'TZOFFSETTO:-0600',
+      'TZNAME:CST',
+      'DTSTART:19701101T020000',
+      'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+      'END:STANDARD',
+      'END:VTIMEZONE',
+      'BEGIN:VEVENT',
+      'UID:' + uid,
+      'DTSTAMP:'    + toIcsDate(now) + 'Z',
+      'DTSTART;TZID=America/Chicago:' + toIcsDate(now),
+      'DTEND;TZID=America/Chicago:'   + toIcsDate(end),
+      'SUMMARY:'    + icsEscape(t.task),
+      'DESCRIPTION:' + icsEscape(
+          (t.notes && t.notes !== 'N/A' ? t.notes + '\\n\\n' : '') +
+          'Priority: ' + (t.priority || '') +
+          (t.location ? ' | Location: ' + t.location : '') +
+          ' | Est: ' + minutes + ' min'
+        ),
+      'CLASS:PRIVATE',
+      'TRANSP:OPAQUE',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    var blob = new Blob([lines], { type: 'text/calendar;charset=utf-8' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = t.task.substring(0,40).replace(/[^a-zA-Z0-9 ]/g,'').trim() + '.ics';
+    document.body.appendChild(a);
+    a.click();
+    a.parentNode.removeChild(a);
+    URL.revokeObjectURL(url);
+    setStatus('ICS downloaded.');
+  }
+
+  // -- EXPORT / IMPORT --
+  function exportBackup() {
+    var blob = new Blob([JSON.stringify(appData, null, 2)], { type: 'application/json' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'task-manager-backup-' + todayStr() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.parentNode.removeChild(a);
+    URL.revokeObjectURL(url);
+    setStatus('Backup downloaded. Keep it somewhere safe, like Drive.');
+  }
+
+  function handleFileSelect(e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function(evt) {
+      try {
+        var parsed = JSON.parse(evt.target.result);
+        if (!parsed || !Array.isArray(parsed.tasks)) {
+          setStatus('That file does not look like a valid backup.');
+          return;
+        }
+        pendingImportData = parsed;
+        openImportModal(parsed);
+      } catch (err) {
+        setStatus('Could not read that file as JSON.');
+      }
+    };
+    reader.onerror = function() {
+      setStatus('Could not read that file.');
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  // Two tasks are treated as the same task if their describing fields line
+  // up. This is a content match, not an id match, because ids are assigned
+  // locally per device and a shared number between two devices is a
+  // coincidence, not a relationship.
+  function tasksMatch(a, b) {
+    return (a.task || '').trim().toLowerCase() === (b.task || '').trim().toLowerCase() &&
+           a.priority === b.priority &&
+           (a.location || '') === (b.location || '') &&
+           (a.minutes  || '') === (b.minutes  || '') &&
+           (a.repeats  || 'N') === (b.repeats  || 'N');
+  }
+
+  function previewMerge(parsed) {
+    var added = 0, matched = 0;
+    for (var i = 0; i < parsed.tasks.length; i++) {
+      var inc = parsed.tasks[i];
+      var found = false;
+      for (var j = 0; j < appData.tasks.length; j++) {
+        if (tasksMatch(appData.tasks[j], inc)) { found = true; break; }
+      }
+      if (found) matched++; else added++;
+    }
+    return { added: added, matched: matched };
+  }
+
+  // Merges incoming tasks into the existing list in place. Matched tasks
+  // keep whichever copy has the later dateCreated for their descriptive
+  // fields, but combine doneDates from both sides and keep the later,
+  // still-future snoozeUntil so no completion history or active snooze is
+  // lost from either device. Unmatched incoming tasks are appended with a
+  // freshly assigned local id so they never collide with existing ids.
+  function mergeImport(parsed) {
+    var added = 0, merged = 0;
+
+    for (var i = 0; i < parsed.tasks.length; i++) {
+      var inc = parsed.tasks[i];
+      var match = null;
+      for (var j = 0; j < appData.tasks.length; j++) {
+        if (tasksMatch(appData.tasks[j], inc)) { match = appData.tasks[j]; break; }
+      }
+
+      if (match) {
+        var incDone   = inc.doneDates   || {};
+        var matchDone = match.doneDates || {};
+        match.doneDates = Object.assign({}, matchDone, incDone);
+
+        var incSnooze   = inc.snoozeUntil   || '';
+        var matchSnooze = match.snoozeUntil || '';
+        if (incSnooze && incSnooze > matchSnooze) {
+          match.snoozeUntil = incSnooze;
+        }
+
+        if ((inc.dateCreated || '') > (match.dateCreated || '')) {
+          match.task        = inc.task;
+          match.priority     = inc.priority;
+          match.location     = inc.location;
+          match.minutes      = inc.minutes;
+          match.repeats      = inc.repeats;
+          match.cost         = inc.cost;
+          match.notes        = inc.notes;
+          match.dateCreated  = inc.dateCreated;
+        }
+        merged++;
+      } else {
+        var newTask = Object.assign({}, inc);
+        newTask.id = appData.nextId++;
+        appData.tasks.push(newTask);
+        added++;
+      }
+    }
+
+    saveData();
+    return { added: added, merged: merged };
+  }
+
+  function openImportModal(parsed) {
+    var preview = previewMerge(parsed);
+    document.getElementById('import-summary').textContent =
+      'This backup contains ' + parsed.tasks.length + ' task' + (parsed.tasks.length !== 1 ? 's' : '') + '. ' +
+      'Merge would add ' + preview.added + ' new task' + (preview.added !== 1 ? 's' : '') +
+      ' and reconcile ' + preview.matched + ' matching task' + (preview.matched !== 1 ? 's' : '') +
+      ' with what is already on this device, keeping the newer details and combining completion history. ' +
+      'Replace All discards everything currently on this device and keeps only what is in this file. This cannot be undone.';
+    document.getElementById('import-overlay').style.display = 'flex';
+  }
+
+  document.getElementById('import-cancel-btn').addEventListener('click', function() {
+    document.getElementById('import-overlay').style.display = 'none';
+    pendingImportData = null;
+  });
+
+  document.getElementById('import-merge-btn').addEventListener('click', function() {
+    if (pendingImportData) {
+      var report = mergeImport(pendingImportData);
+      renderTasks();
+      setStatus('Merged: added ' + report.added + ', reconciled ' + report.merged + '.');
+    }
+    document.getElementById('import-overlay').style.display = 'none';
+    pendingImportData = null;
+  });
+
+  document.getElementById('import-replace-btn').addEventListener('click', function() {
+    if (pendingImportData) {
+      appData = pendingImportData;
+      if (typeof appData.nextId !== 'number') appData.nextId = computeNextId();
+      saveData();
+      renderTasks();
+      setStatus('Backup imported.');
+    }
+    document.getElementById('import-overlay').style.display = 'none';
+    pendingImportData = null;
+  });
+
+  // -- HELPERS --
+  function setStatus(msg) {
+    var el = document.getElementById('status');
+    el.textContent = msg;
+    if (msg) {
+      setTimeout(function() { if (el.textContent === msg) el.textContent = ''; }, 3500);
+    }
+  }
+
+  // -- ENTER KEY TO ADD --
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && document.activeElement) {
+      var id = document.activeElement.id;
+      if (id === 'task-input' || id === 'min-input-add' ||
+          id === 'loc-input'  || id === 'notes-input') {
+        e.preventDefault();
+        submitAdd();
+      }
+    }
+  });
+
+  init();
+</script>
+</body>
+</html>
