@@ -638,6 +638,15 @@
   </div>
 </div>
 
+<!-- Single-Instance Lock Overlay -->
+<div id="lock-overlay" class="overlay" style="display:none;">
+  <div class="confirm-box">
+    <p>This Task Manager is already open in another tab or window on this device. Having it open twice at once is what causes snoozes and edits to silently overwrite each other, so this copy won't load while the other one is open.</p>
+    <p style="margin-top:-8px; margin-bottom:18px; color:#888; font-size:clamp(11px,2.8vw,13px);">Close the other tab or window, then tap below.</p>
+    <button class="cbtn cbtn-cancel" id="lock-retry-btn" style="background:#f4b41a; color:#111;">Try Again</button>
+  </div>
+</div>
+
 <script>
   // -- STORAGE --
   // Everything lives in one localStorage key as a single JSON blob:
@@ -1623,7 +1632,81 @@
     }
   });
 
-  init();
+  // -- STALE-TAB RESYNC --
+  // The app reads localStorage once into memory on load and works from that
+  // copy. If it's open in more than one tab, or iOS revives a backgrounded
+  // tab without a real reload, that in-memory copy can go stale and a save
+  // from the stale tab will overwrite newer changes made elsewhere. These
+  // listeners re-read storage whenever there's reason to think it may have
+  // changed underneath this instance, skipping the refresh while a modal is
+  // open so it never disrupts something in progress.
+
+  function anyModalOpen() {
+    var overlays = document.querySelectorAll('.overlay');
+    for (var i = 0; i < overlays.length; i++) {
+      var el = overlays[i];
+      if (el.id === 'edit-overlay' || el.id === 'import-overlay' || el.id === 'lock-overlay') {
+        if (el.style.display && el.style.display !== 'none') return true;
+      } else {
+        // Dynamically created overlays (snooze, delete confirm) only exist
+        // in the DOM while they're open.
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function refreshFromStorage() {
+    if (anyModalOpen()) return;
+    loadData();
+    renderTasks();
+  }
+
+  // -- SINGLE-INSTANCE LOCK --
+  // Claims an exclusive Web Lock for the life of this tab. A second tab or
+  // window trying to claim the same named lock gets null back immediately
+  // (ifAvailable skips waiting in a queue) and is shown a full-screen block
+  // instead of loading any data, so it can never hold a stale in-memory
+  // copy that later overwrites what the first tab saved.
+
+  var LOCK_NAME = 'appaday060-task-manager-instance-lock';
+
+  function showLockedOverlay() {
+    document.getElementById('lock-overlay').style.display = 'flex';
+  }
+
+  function startApp() {
+    window.addEventListener('storage', function(e) {
+      if (e.key === STORAGE_KEY) refreshFromStorage();
+    });
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') refreshFromStorage();
+    });
+    window.addEventListener('pageshow', function() {
+      refreshFromStorage();
+    });
+    init();
+  }
+
+  if (navigator.locks && navigator.locks.request) {
+    navigator.locks.request(LOCK_NAME, { ifAvailable: true }, function(lock) {
+      if (lock) {
+        startApp();
+        // Never resolving keeps the lock held for as long as this tab lives.
+        return new Promise(function() {});
+      } else {
+        showLockedOverlay();
+      }
+    });
+  } else {
+    // Older browser without the Web Locks API can't detect a duplicate tab,
+    // so it starts normally rather than blocking everyone.
+    startApp();
+  }
+
+  document.getElementById('lock-retry-btn').addEventListener('click', function() {
+    location.reload();
+  });
 </script>
 </body>
 </html>
