@@ -502,7 +502,7 @@
 <body>
 <div id="shell">
   <div id="portal-bar">
-    <span><span class="appnum">#060</span> Task Manager</span>
+    <span><span class="appnum">#060</span> Task Manager <span id="sync-dot" style="display:none; color:#00e5ff;">&#9679;</span></span>
     <a href="https://augustineiacopelli.github.io/appaday/">&larr; AppADay Portal</a>
   </div>
 
@@ -512,6 +512,7 @@
       <div class="subtitle" id="task-count">Loading…</div>
     </div>
     <div id="header-actions">
+      <button class="icon-btn" id="settings-btn" title="Cloud sync settings">&#9881;</button>
       <button class="icon-btn" id="export-btn" title="Export backup">&#8681;</button>
       <button class="icon-btn" id="import-btn" title="Import backup">&#8679;</button>
     </div>
@@ -638,6 +639,28 @@
   </div>
 </div>
 
+<!-- Settings / Cloud Sync Modal -->
+<div id="settings-overlay" class="overlay" style="display:none;">
+  <div class="modal-box">
+    <h2>Cloud Sync</h2>
+    <p class="hint">Optional. Point this at your own Apps Script Web App to keep this device's task list synced with the same one everywhere else you use the app. Leave the URL blank and save to turn sync off. See the repo README for full setup steps.</p>
+    <div class="field-row">
+      <label>Web App URL</label>
+      <input id="settings-url" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+    </div>
+    <div class="field-row">
+      <label>Passphrase</label>
+      <input id="settings-pass" type="password" placeholder="Matches the PASSPHRASE script property">
+    </div>
+    <p class="hint" id="settings-msg" style="min-height:18px;"></p>
+    <div class="modal-actions">
+      <button class="mbtn mbtn-cancel" id="settings-test-btn">Test Connection</button>
+      <button class="mbtn mbtn-save" id="settings-save-btn">Save</button>
+    </div>
+    <button class="mbtn mbtn-cancel" id="settings-cancel-btn" style="width:100%; margin-top:10px;">Close</button>
+  </div>
+</div>
+
 <!-- Single-Instance Lock Overlay -->
 <div id="lock-overlay" class="overlay" style="display:none;">
   <div class="confirm-box">
@@ -656,10 +679,16 @@
   // reset, a device change, or accidental storage clearing.
 
   var STORAGE_KEY = 'appaday060_taskmanager';
+  var CLOUD_CONFIG_KEY = 'appaday060_cloud_config';
+  var LAST_SYNC_KEY = 'appaday060_last_sync';
   var appData = { version: 1, nextId: 1, tasks: [] };
   var currentFilter = 'all';
   var editingId = -1;
   var pendingImportData = null;
+  var cloudConfig = null;
+  var syncInProgress = false;
+  var syncDebounceTimer = null;
+  var lastSyncTime = 0;
 
   var DAYS     = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   var MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -685,11 +714,111 @@
   function saveData() {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
-      return true;
     } catch (e) {
       setStatus('Warning: could not save. Export a backup now to be safe.');
       return false;
     }
+    if (!syncInProgress) scheduleSync();
+    return true;
+  }
+
+  // -- CLOUD SYNC --
+  // Entirely optional. Configured through the Settings modal with a URL
+  // pointing at the person's own Apps Script Web App deployment and a
+  // passphrase checked on the server side. Nothing here is contacted unless
+  // cloudConfig.url is set. Sync is a full pull-merge-push cycle each time:
+  // pull whatever is on the server, merge it into the local copy using the
+  // same content-based matching as manual Import, save the merged result
+  // locally, then push that merged result back up so the server always ends
+  // up holding the same superset both sides just agreed on. This keeps two
+  // devices editing at different times in agreement without needing real
+  // per-field conflict resolution, which a personal task list used
+  // sequentially through the day doesn't need.
+
+  function loadCloudConfig() {
+    try {
+      var raw = window.localStorage.getItem(CLOUD_CONFIG_KEY);
+      if (raw) cloudConfig = JSON.parse(raw);
+    } catch (e) {
+      cloudConfig = null;
+    }
+    try {
+      lastSyncTime = parseInt(window.localStorage.getItem(LAST_SYNC_KEY), 10) || 0;
+    } catch (e) {
+      lastSyncTime = 0;
+    }
+  }
+
+  function cloudUrlWithPass(baseUrl, pass) {
+    var sep = baseUrl.indexOf('?') > -1 ? '&' : '?';
+    return baseUrl + sep + 'pass=' + encodeURIComponent(pass || '');
+  }
+
+  function cloudPull(url, pass) {
+    return fetch(cloudUrlWithPass(url, pass), { method: 'GET' })
+      .then(function(res) { return res.json(); });
+  }
+
+  function cloudPush(url, pass, data) {
+    var payload = JSON.stringify({ pass: pass || '', data: data });
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: payload
+    }).then(function(res) { return res.json(); });
+  }
+
+  function setSyncIndicator(active) {
+    var dot = document.getElementById('sync-dot');
+    if (!dot) return;
+    dot.style.display = (cloudConfig && cloudConfig.url) ? 'inline' : 'none';
+    dot.style.color = active ? '#f4b41a' : '#00e5ff';
+  }
+
+  function scheduleSync() {
+    if (!cloudConfig || !cloudConfig.url) return;
+    if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(function() { syncNow(); }, 2000);
+  }
+
+  function syncNow() {
+    if (!cloudConfig || !cloudConfig.url) return Promise.resolve();
+    if (syncInProgress) return Promise.resolve();
+    syncInProgress = true;
+    setSyncIndicator(true);
+
+    return cloudPull(cloudConfig.url, cloudConfig.pass)
+      .then(function(remote) {
+        if (remote && remote.error) throw new Error(remote.error);
+        if (remote && Array.isArray(remote.tasks)) {
+          mergeImport(remote);
+        }
+        return cloudPush(cloudConfig.url, cloudConfig.pass, appData);
+      })
+      .then(function(pushResult) {
+        if (pushResult && pushResult.error) throw new Error(pushResult.error);
+        lastSyncTime = Date.now();
+        try { window.localStorage.setItem(LAST_SYNC_KEY, String(lastSyncTime)); } catch (e) {}
+        renderTasks();
+      })
+      .catch(function() {
+        // Sync failures stay silent in the UI beyond the indicator; the
+        // local copy is always the fallback of record, and Export remains
+        // available regardless of whether the cloud call succeeded.
+      })
+      .then(function() {
+        syncInProgress = false;
+        setSyncIndicator(false);
+      });
+  }
+
+  function timeSinceSync() {
+    if (!lastSyncTime) return 'never';
+    var mins = Math.round((Date.now() - lastSyncTime) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    return hrs + 'h ago';
   }
 
   function computeNextId() {
@@ -905,6 +1034,7 @@
   // -- INIT --
   function init() {
     var had = loadData();
+    loadCloudConfig();
     renderTasks();
     if (!had) setStatus('Welcome. Add your first task below, or import a backup.');
 
@@ -913,6 +1043,67 @@
       document.getElementById('file-input').click();
     });
     document.getElementById('file-input').addEventListener('change', handleFileSelect);
+
+    document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
+    document.getElementById('settings-cancel-btn').addEventListener('click', closeSettingsModal);
+    document.getElementById('settings-test-btn').addEventListener('click', testConnection);
+    document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
+
+    setSyncIndicator(false);
+    if (cloudConfig && cloudConfig.url) syncNow();
+  }
+
+  // -- SETTINGS MODAL --
+  function openSettingsModal() {
+    document.getElementById('settings-url').value  = (cloudConfig && cloudConfig.url)  ? cloudConfig.url  : '';
+    document.getElementById('settings-pass').value = (cloudConfig && cloudConfig.pass) ? cloudConfig.pass : '';
+    document.getElementById('settings-msg').textContent =
+      (cloudConfig && cloudConfig.url) ? 'Sync is on. Last synced ' + timeSinceSync() + '.' : 'Sync is off.';
+    document.getElementById('settings-overlay').style.display = 'flex';
+  }
+
+  function closeSettingsModal() {
+    document.getElementById('settings-overlay').style.display = 'none';
+  }
+
+  function testConnection() {
+    var url  = document.getElementById('settings-url').value.trim();
+    var pass = document.getElementById('settings-pass').value;
+    var msg  = document.getElementById('settings-msg');
+    if (!url) { msg.textContent = 'Enter a Web App URL first.'; return; }
+    msg.textContent = 'Testing...';
+    cloudPull(url, pass)
+      .then(function(json) {
+        if (json && json.error) { msg.textContent = 'Connection failed: ' + json.error; return; }
+        if (json && Array.isArray(json.tasks)) {
+          msg.textContent = 'Connected. Found ' + json.tasks.length + ' task(s) on the server.';
+        } else {
+          msg.textContent = 'Connected, but the response looked unexpected.';
+        }
+      })
+      .catch(function() {
+        msg.textContent = 'Could not reach that URL. Check it and your connection.';
+      });
+  }
+
+  function saveSettings() {
+    var url  = document.getElementById('settings-url').value.trim();
+    var pass = document.getElementById('settings-pass').value;
+
+    if (!url) {
+      cloudConfig = null;
+      try { window.localStorage.removeItem(CLOUD_CONFIG_KEY); } catch (e) {}
+      closeSettingsModal();
+      setSyncIndicator(false);
+      setStatus('Cloud sync turned off.');
+      return;
+    }
+
+    cloudConfig = { url: url, pass: pass };
+    try { window.localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cloudConfig)); } catch (e) {}
+    closeSettingsModal();
+    setStatus('Cloud sync saved. Syncing now...');
+    syncNow().then(function() { setStatus('Synced.'); });
   }
 
   // -- RENDER --
@@ -999,7 +1190,8 @@
 
     document.getElementById('task-count').textContent =
       filtered.length + ' task' + (filtered.length !== 1 ? 's' : '') +
-      (currentFilter !== 'all' ? ' (filtered)' : '');
+      (currentFilter !== 'all' ? ' (filtered)' : '') +
+      ((cloudConfig && cloudConfig.url) ? ' \u2022 synced ' + timeSinceSync() : '');
 
     if (!filtered.length) {
       list.innerHTML = '<div id="loading">No tasks found. Add one below, or tap &#8679; to import a backup.</div>';
@@ -1645,7 +1837,7 @@
     var overlays = document.querySelectorAll('.overlay');
     for (var i = 0; i < overlays.length; i++) {
       var el = overlays[i];
-      if (el.id === 'edit-overlay' || el.id === 'import-overlay' || el.id === 'lock-overlay') {
+      if (el.id === 'edit-overlay' || el.id === 'import-overlay' || el.id === 'lock-overlay' || el.id === 'settings-overlay') {
         if (el.style.display && el.style.display !== 'none') return true;
       } else {
         // Dynamically created overlays (snooze, delete confirm) only exist
@@ -1660,6 +1852,7 @@
     if (anyModalOpen()) return;
     loadData();
     renderTasks();
+    if (cloudConfig && cloudConfig.url) syncNow();
   }
 
   // -- SINGLE-INSTANCE LOCK --
