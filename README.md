@@ -52,6 +52,12 @@ If you ever want to see the raw synced data directly, the `SYNC_FILE_ID` file li
 
 Turning sync off on a single device is a matter of opening Settings and clearing the URL field before saving; that device reverts to local-only storage without affecting any other device still pointed at the same sync URL.
 
+### Deletions and sync: tombstones
+
+Merging two task lists that were each edited independently has one hard problem: representing a deletion. A plain merge that only knows how to add things it hasn't seen before will, if one device deletes a task while another device is still holding a stale copy of it, treat that stale copy as something new to add back in on its next sync, and push it right back out to every other device. In practice this looked like a task disappearing on one device for a moment and then reappearing, caused by another device that hadn't yet learned about the deletion syncing its old copy back up.
+
+The fix is a tombstone: deleting a task records a signature for it (task text, priority, location, minutes, and repeat rule, the same fields used for merge matching) along with the deletion time, kept separately from the task list itself. Every merge, whether from cloud sync or a manual Import, unions incoming tombstones into the local set, removes any local task matching a tombstone, and skips re-adding any incoming task matching one, unless that incoming task's own `dateCreated` postdates the tombstone, in which case it's treated as a genuinely new task that happens to look similar rather than the old one coming back. Tombstones are pruned after 60 days, long enough to cover a device that's been offline for a while without letting the sync file grow forever.
+
 ## Notes
 
 Repeat-rule parsing, due-today logic, and the calendar export were carried over largely unchanged from the original Apps Script version. What changed is the data layer: instead of two Google Doc tables (a task table and a state table) reached through `google.script.run`, everything now lives in one flat array of task objects, each carrying its own completion history and snooze date, read and written directly through `window.localStorage`, with the optional cloud sync layer described above reaching the same shape of data out to a separate, personally-owned Apps Script Web App over `fetch()`.
