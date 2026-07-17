@@ -681,7 +681,7 @@
   var STORAGE_KEY = 'appaday060_taskmanager';
   var CLOUD_CONFIG_KEY = 'appaday060_cloud_config';
   var LAST_SYNC_KEY = 'appaday060_last_sync';
-  var appData = { version: 1, nextId: 1, tasks: [] };
+  var appData = { version: 1, nextId: 1, tasks: [], tombstones: {} };
   var currentFilter = 'all';
   var editingId = -1;
   var pendingImportData = null;
@@ -1496,7 +1496,15 @@
   }
 
   function doDelete(taskId) {
-    appData.tasks = appData.tasks.filter(function(t) { return t.id !== taskId; });
+    var t = findTask(taskId);
+    if (t) {
+      if (!appData.tombstones) appData.tombstones = {};
+      appData.tombstones[taskSignature(t)] = {
+        deletedAt: new Date().toISOString(),
+        taskDateCreated: t.dateCreated || ''
+      };
+    }
+    appData.tasks = appData.tasks.filter(function(x) { return x.id !== taskId; });
     saveData();
     renderTasks();
     setStatus('Task deleted.');
@@ -1690,6 +1698,50 @@
     e.target.value = '';
   }
 
+  // A stable, content-based identity for a task, independent of the
+  // per-device id counter. Deletions are recorded against this signature
+  // rather than an id, since two devices' ids for "the same" task are
+  // coincidental at best.
+  function taskSignature(t) {
+    return [
+      (t.task || '').trim().toLowerCase(),
+      t.priority || '',
+      (t.location || '').trim().toLowerCase(),
+      (t.minutes  || '').trim(),
+      t.repeats   || 'N'
+    ].join('||');
+  }
+
+  // A tombstone records that a task matching this signature was
+  // deliberately deleted, and when. An incoming task with a matching
+  // signature is treated as a resurrection of the deleted one, UNLESS its
+  // own dateCreated postdates the deleted task's dateCreated, which means
+  // someone genuinely added a new, similarly-described task after the old
+  // one was removed rather than the old one reappearing.
+  function isTombstoned(task) {
+    var tomb = (appData.tombstones || {})[taskSignature(task)];
+    if (!tomb) return false;
+    if (task.dateCreated && tomb.taskDateCreated && task.dateCreated > tomb.taskDateCreated) {
+      return false;
+    }
+    return true;
+  }
+
+  // Tombstones only need to outlive the longest realistic gap between two
+  // devices syncing with each other; 60 days comfortably covers a device
+  // that's been offline for a while without growing the sync file forever.
+  function pruneTombstones() {
+    if (!appData.tombstones) return;
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 60);
+    var cutoffIso = cutoff.toISOString();
+    for (var sig in appData.tombstones) {
+      if (appData.tombstones[sig].deletedAt < cutoffIso) {
+        delete appData.tombstones[sig];
+      }
+    }
+  }
+
   // Two tasks are treated as the same task if their describing fields line
   // up. This is a content match, not an id match, because ids are assigned
   // locally per device and a shared number between two devices is a
@@ -1703,16 +1755,17 @@
   }
 
   function previewMerge(parsed) {
-    var added = 0, matched = 0;
+    var added = 0, matched = 0, tombstoned = 0;
     for (var i = 0; i < parsed.tasks.length; i++) {
       var inc = parsed.tasks[i];
+      if (isTombstoned(inc)) { tombstoned++; continue; }
       var found = false;
       for (var j = 0; j < appData.tasks.length; j++) {
         if (tasksMatch(appData.tasks[j], inc)) { found = true; break; }
       }
       if (found) matched++; else added++;
     }
-    return { added: added, matched: matched };
+    return { added: added, matched: matched, tombstoned: tombstoned };
   }
 
   // Merges incoming tasks into the existing list in place. Matched tasks
@@ -1721,11 +1774,36 @@
   // still-future snoozeUntil so no completion history or active snooze is
   // lost from either device. Unmatched incoming tasks are appended with a
   // freshly assigned local id so they never collide with existing ids.
+  //
+  // Tombstones (deletion records) are merged first, as a union keyed by
+  // signature keeping whichever record is newer, then applied in both
+  // directions: any local task matching a tombstone is removed (a deletion
+  // made elsewhere propagates in), and any incoming task matching a
+  // tombstone is skipped rather than re-added (a deletion made here isn't
+  // undone by pulling in a copy that predates it). This is what lets a
+  // delete on one device actually stay deleted everywhere, instead of
+  // being silently reintroduced by a device that merged before it learned
+  // about the deletion.
   function mergeImport(parsed) {
-    var added = 0, merged = 0;
+    var added = 0, merged = 0, tombstoned = 0;
+
+    if (!appData.tombstones) appData.tombstones = {};
+    var incTomb = parsed.tombstones || {};
+    for (var sig in incTomb) {
+      var existing = appData.tombstones[sig];
+      if (!existing || incTomb[sig].deletedAt > existing.deletedAt) {
+        appData.tombstones[sig] = incTomb[sig];
+      }
+    }
+
+    appData.tasks = appData.tasks.filter(function(t) {
+      return !isTombstoned(t);
+    });
 
     for (var i = 0; i < parsed.tasks.length; i++) {
       var inc = parsed.tasks[i];
+      if (isTombstoned(inc)) { tombstoned++; continue; }
+
       var match = null;
       for (var j = 0; j < appData.tasks.length; j++) {
         if (tasksMatch(appData.tasks[j], inc)) { match = appData.tasks[j]; break; }
@@ -1761,17 +1839,22 @@
       }
     }
 
+    pruneTombstones();
     saveData();
-    return { added: added, merged: merged };
+    return { added: added, merged: merged, tombstoned: tombstoned };
   }
 
   function openImportModal(parsed) {
     var preview = previewMerge(parsed);
+    var tombLine = preview.tombstoned > 0
+      ? (' ' + preview.tombstoned + ' item' + (preview.tombstoned !== 1 ? 's' : '') + ' in this file ' +
+         (preview.tombstoned !== 1 ? 'were' : 'was') + ' already deleted on this device and will stay deleted, not reappear.')
+      : '';
     document.getElementById('import-summary').textContent =
       'This backup contains ' + parsed.tasks.length + ' task' + (parsed.tasks.length !== 1 ? 's' : '') + '. ' +
       'Merge would add ' + preview.added + ' new task' + (preview.added !== 1 ? 's' : '') +
       ' and reconcile ' + preview.matched + ' matching task' + (preview.matched !== 1 ? 's' : '') +
-      ' with what is already on this device, keeping the newer details and combining completion history. ' +
+      ' with what is already on this device, keeping the newer details and combining completion history.' + tombLine + ' ' +
       'Replace All discards everything currently on this device and keeps only what is in this file. This cannot be undone.';
     document.getElementById('import-overlay').style.display = 'flex';
   }
@@ -1785,7 +1868,9 @@
     if (pendingImportData) {
       var report = mergeImport(pendingImportData);
       renderTasks();
-      setStatus('Merged: added ' + report.added + ', reconciled ' + report.merged + '.');
+      var msg = 'Merged: added ' + report.added + ', reconciled ' + report.merged + '.';
+      if (report.tombstoned > 0) msg += ' ' + report.tombstoned + ' stayed deleted.';
+      setStatus(msg);
     }
     document.getElementById('import-overlay').style.display = 'none';
     pendingImportData = null;
@@ -1795,6 +1880,7 @@
     if (pendingImportData) {
       appData = pendingImportData;
       if (typeof appData.nextId !== 'number') appData.nextId = computeNextId();
+      if (!appData.tombstones) appData.tombstones = {};
       saveData();
       renderTasks();
       setStatus('Backup imported.');
