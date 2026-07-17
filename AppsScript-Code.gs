@@ -23,7 +23,7 @@ var SYNC_PASSPHRASE = 'PASTE_YOUR_OWN_PASSPHRASE_HERE';
 function createSyncFile() {
   var file = DriveApp.createFile(
     'appaday-060-sync-data.json',
-    JSON.stringify({ version: 1, nextId: 1, tasks: [] }),
+    JSON.stringify({ version: 1, nextId: 1, tasks: [], tombstones: {} }),
     MimeType.PLAIN_TEXT
   );
   Logger.log('Sync file created.');
