@@ -694,6 +694,23 @@
   var MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var ORDINALS = ['1st','2nd','3rd','4th','5th'];
 
+  // A stable identity per task that survives content edits. The per-device
+  // numeric id is only ever used for UI actions (which row a button
+  // refers to); uid is what merges use to recognize "this is the same
+  // task, just edited" across devices, since content, including priority,
+  // location, minutes, and repeats, can legitimately change on either
+  // side between syncs.
+  function generateUid() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
+  function backfillUids(tasks) {
+    for (var i = 0; i < tasks.length; i++) {
+      if (!tasks[i].uid) tasks[i].uid = generateUid();
+    }
+  }
+
   function loadData() {
     try {
       var raw = window.localStorage.getItem(STORAGE_KEY);
@@ -702,6 +719,8 @@
         if (parsed && Array.isArray(parsed.tasks)) {
           appData = parsed;
           if (typeof appData.nextId !== 'number') appData.nextId = computeNextId();
+          if (!appData.tombstones) appData.tombstones = {};
+          backfillUids(appData.tasks);
           return true;
         }
       }
@@ -1468,6 +1487,8 @@
     t.repeats  = buildRepeatValue('e-repeats', 'e-repeat-detail');
     t.cost     = document.getElementById('e-cost').value;
     t.notes    = document.getElementById('e-notes').value.trim() || 'N/A';
+    t.lastModified = new Date().toISOString();
+    if (!t.uid) t.uid = generateUid();
 
     saveData();
     closeEditModal();
@@ -1499,10 +1520,12 @@
     var t = findTask(taskId);
     if (t) {
       if (!appData.tombstones) appData.tombstones = {};
-      appData.tombstones[taskSignature(t)] = {
+      var record = {
         deletedAt: new Date().toISOString(),
         taskDateCreated: t.dateCreated || ''
       };
+      if (t.uid) appData.tombstones[t.uid] = record;
+      appData.tombstones[taskSignature(t)] = record;
     }
     appData.tasks = appData.tasks.filter(function(x) { return x.id !== taskId; });
     saveData();
@@ -1533,18 +1556,21 @@
     }
     minutesEl.classList.remove('error');
 
+    var nowIso = new Date().toISOString();
     var newTask = {
-      id:          appData.nextId++,
-      priority:    document.getElementById('priority-sel').value,
-      location:    document.getElementById('loc-input').value.trim(),
-      task:        taskText,
-      cost:        'N',
-      minutes:     minutes,
-      repeats:     buildRepeatValue('repeats-sel', 'repeat-detail'),
-      notes:       document.getElementById('notes-input').value.trim() || 'N/A',
-      dateCreated: (new Date()).toISOString().slice(0,19).replace('T',' '),
-      doneDates:   {},
-      snoozeUntil: ''
+      id:           appData.nextId++,
+      uid:          generateUid(),
+      priority:     document.getElementById('priority-sel').value,
+      location:     document.getElementById('loc-input').value.trim(),
+      task:         taskText,
+      cost:         'N',
+      minutes:      minutes,
+      repeats:      buildRepeatValue('repeats-sel', 'repeat-detail'),
+      notes:        document.getElementById('notes-input').value.trim() || 'N/A',
+      dateCreated:  (new Date()).toISOString().slice(0,19).replace('T',' '),
+      lastModified: nowIso,
+      doneDates:    {},
+      snoozeUntil:  ''
     };
 
     appData.tasks.push(newTask);
@@ -1699,9 +1725,9 @@
   }
 
   // A stable, content-based identity for a task, independent of the
-  // per-device id counter. Deletions are recorded against this signature
-  // rather than an id, since two devices' ids for "the same" task are
-  // coincidental at best.
+  // per-device id counter and independent of uid, used as the tombstone
+  // and match fallback for tasks that predate uid, or as a cross-check
+  // during the transition period right after uid was introduced.
   function taskSignature(t) {
     return [
       (t.task || '').trim().toLowerCase(),
@@ -1712,16 +1738,21 @@
     ].join('||');
   }
 
-  // A tombstone records that a task matching this signature was
-  // deliberately deleted, and when. An incoming task with a matching
-  // signature is treated as a resurrection of the deleted one, UNLESS its
-  // own dateCreated postdates the deleted task's dateCreated, which means
-  // someone genuinely added a new, similarly-described task after the old
-  // one was removed rather than the old one reappearing.
+  // A tombstone records that a task was deliberately deleted, and when.
+  // Checked first by uid, the stable identity described above, then by
+  // content signature as a fallback for tombstones recorded before a peer
+  // had adopted uid for that particular task. Either way, an incoming task
+  // is treated as a resurrection of the deleted one UNLESS its own
+  // lastModified (or dateCreated, for older data) postdates the deleted
+  // task's, which means someone genuinely created a new, similarly
+  // described task after the old one was removed rather than the old one
+  // reappearing.
   function isTombstoned(task) {
-    var tomb = (appData.tombstones || {})[taskSignature(task)];
-    if (!tomb) return false;
-    if (task.dateCreated && tomb.taskDateCreated && task.dateCreated > tomb.taskDateCreated) {
+    var tomb = appData.tombstones || {};
+    var record = (task.uid && tomb[task.uid]) || tomb[taskSignature(task)];
+    if (!record) return false;
+    var taskStamp = task.lastModified || task.dateCreated || '';
+    if (taskStamp && record.taskDateCreated && taskStamp > record.taskDateCreated) {
       return false;
     }
     return true;
@@ -1742,16 +1773,29 @@
     }
   }
 
-  // Two tasks are treated as the same task if their describing fields line
-  // up. This is a content match, not an id match, because ids are assigned
-  // locally per device and a shared number between two devices is a
-  // coincidence, not a relationship.
+  // A pure content comparison: same task text, priority, location,
+  // minutes, and repeat rule. Used as the tombstone fallback above, and as
+  // one half of tasksIdentityMatch below.
   function tasksMatch(a, b) {
     return (a.task || '').trim().toLowerCase() === (b.task || '').trim().toLowerCase() &&
            a.priority === b.priority &&
            (a.location || '') === (b.location || '') &&
            (a.minutes  || '') === (b.minutes  || '') &&
            (a.repeats  || 'N') === (b.repeats  || 'N');
+  }
+
+  // The real identity check used for merging. Two tasks are the same task
+  // if they share a uid, which survives content edits, OR if their content
+  // still matches outright. The OR is deliberate: it's what makes the
+  // upgrade to uid safe for tasks that already existed before uid was
+  // introduced, since two independently-backfilled random uids for what
+  // is genuinely the same never-edited task would otherwise fail to match
+  // on their first post-upgrade sync. Content matching catches that case;
+  // once matched, the uids are converged (see mergeImport below) so all
+  // later edits, which change content, no longer break the identity link.
+  function tasksIdentityMatch(a, b) {
+    if (a.uid && b.uid && a.uid === b.uid) return true;
+    return tasksMatch(a, b);
   }
 
   function previewMerge(parsed) {
@@ -1761,7 +1805,7 @@
       if (isTombstoned(inc)) { tombstoned++; continue; }
       var found = false;
       for (var j = 0; j < appData.tasks.length; j++) {
-        if (tasksMatch(appData.tasks[j], inc)) { found = true; break; }
+        if (tasksIdentityMatch(appData.tasks[j], inc)) { found = true; break; }
       }
       if (found) matched++; else added++;
     }
@@ -1769,23 +1813,26 @@
   }
 
   // Merges incoming tasks into the existing list in place. Matched tasks
-  // keep whichever copy has the later dateCreated for their descriptive
-  // fields, but combine doneDates from both sides and keep the later,
-  // still-future snoozeUntil so no completion history or active snooze is
-  // lost from either device. Unmatched incoming tasks are appended with a
-  // freshly assigned local id so they never collide with existing ids.
+  // keep whichever copy has the later lastModified (falling back to
+  // dateCreated for tasks that predate that field) for their descriptive
+  // fields specifically, since dateCreated never changes on an edit and
+  // can't tell a five-second-old change from a stale one, but always
+  // combine doneDates from both sides and keep the later, still-future
+  // snoozeUntil regardless of which side's descriptive fields won, so no
+  // completion history or active snooze is lost from either device.
+  // Unmatched incoming tasks are appended with a freshly assigned local id
+  // so they never collide with existing ids.
   //
   // Tombstones (deletion records) are merged first, as a union keyed by
-  // signature keeping whichever record is newer, then applied in both
-  // directions: any local task matching a tombstone is removed (a deletion
-  // made elsewhere propagates in), and any incoming task matching a
-  // tombstone is skipped rather than re-added (a deletion made here isn't
-  // undone by pulling in a copy that predates it). This is what lets a
-  // delete on one device actually stay deleted everywhere, instead of
-  // being silently reintroduced by a device that merged before it learned
-  // about the deletion.
+  // uid or signature keeping whichever record is newer, then applied in
+  // both directions: any local task matching a tombstone is removed (a
+  // deletion made elsewhere propagates in), and any incoming task matching
+  // a tombstone is skipped rather than re-added (a deletion made here
+  // isn't undone by pulling in a copy that predates it).
   function mergeImport(parsed) {
     var added = 0, merged = 0, tombstoned = 0;
+
+    backfillUids(parsed.tasks);
 
     if (!appData.tombstones) appData.tombstones = {};
     var incTomb = parsed.tombstones || {};
@@ -1806,10 +1853,15 @@
 
       var match = null;
       for (var j = 0; j < appData.tasks.length; j++) {
-        if (tasksMatch(appData.tasks[j], inc)) { match = appData.tasks[j]; break; }
+        if (tasksIdentityMatch(appData.tasks[j], inc)) { match = appData.tasks[j]; break; }
       }
 
       if (match) {
+        // Converge on a single shared uid so future syncs, including
+        // after edits change the content fields, keep matching on
+        // identity rather than falling back to content comparison.
+        if (!match.uid && inc.uid) match.uid = inc.uid;
+
         var incDone   = inc.doneDates   || {};
         var matchDone = match.doneDates || {};
         match.doneDates = Object.assign({}, matchDone, incDone);
@@ -1820,15 +1872,17 @@
           match.snoozeUntil = incSnooze;
         }
 
-        if ((inc.dateCreated || '') > (match.dateCreated || '')) {
-          match.task        = inc.task;
-          match.priority     = inc.priority;
-          match.location     = inc.location;
-          match.minutes      = inc.minutes;
-          match.repeats      = inc.repeats;
-          match.cost         = inc.cost;
-          match.notes        = inc.notes;
-          match.dateCreated  = inc.dateCreated;
+        var incStamp   = inc.lastModified   || inc.dateCreated   || '';
+        var matchStamp = match.lastModified || match.dateCreated || '';
+        if (incStamp > matchStamp) {
+          match.task         = inc.task;
+          match.priority      = inc.priority;
+          match.location      = inc.location;
+          match.minutes       = inc.minutes;
+          match.repeats       = inc.repeats;
+          match.cost          = inc.cost;
+          match.notes         = inc.notes;
+          match.lastModified  = incStamp;
         }
         merged++;
       } else {
