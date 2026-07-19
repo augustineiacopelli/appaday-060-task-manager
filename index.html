@@ -773,8 +773,19 @@
     return baseUrl + sep + 'pass=' + encodeURIComponent(pass || '');
   }
 
+  // A plain fetch to the same URL with the same query string is exactly
+  // the shape of request browsers cache by default. Without guarding
+  // against that, a pull can silently return a stale cached response
+  // instead of hitting the network, which would look identical to a
+  // deletion or edit reverting even though nothing about the merge logic
+  // itself was at fault. The cache-busting timestamp defeats any URL-keyed
+  // cache (browser or intermediate proxy); cache: 'no-store' tells fetch
+  // itself never to read from or write to the HTTP cache for this request.
   function cloudPull(url, pass) {
-    return fetch(cloudUrlWithPass(url, pass), { method: 'GET' })
+    var withPass = cloudUrlWithPass(url, pass);
+    var sep = withPass.indexOf('?') > -1 ? '&' : '?';
+    var bustUrl = withPass + sep + '_=' + Date.now();
+    return fetch(bustUrl, { method: 'GET', cache: 'no-store' })
       .then(function(res) { return res.json(); });
   }
 
@@ -1990,6 +2001,7 @@
 
   function refreshFromStorage() {
     if (anyModalOpen()) return;
+    if (syncInProgress) return;
     loadData();
     renderTasks();
     if (cloudConfig && cloudConfig.url) syncNow();
