@@ -1533,7 +1533,7 @@
       if (!appData.tombstones) appData.tombstones = {};
       var record = {
         deletedAt: new Date().toISOString(),
-        taskDateCreated: t.dateCreated || ''
+        taskDateCreated: t.lastModified || t.dateCreated || ''
       };
       if (t.uid) appData.tombstones[t.uid] = record;
       appData.tombstones[taskSignature(t)] = record;
