@@ -1750,6 +1750,28 @@
   }
 
   // A tombstone records that a task was deliberately deleted, and when.
+  // dateCreated and lastModified are stored in genuinely different string
+  // shapes: dateCreated as "YYYY-MM-DD HH:MM:SS" (space-separated, second
+  // precision, always UTC despite not saying so), lastModified as a full
+  // ISO string with a literal T, milliseconds, and a trailing Z. Comparing
+  // those two shapes directly as strings is wrong in both directions: a
+  // dateCreated-shaped value always sorts as "older" than an ISO-shaped
+  // value for the same instant, since a space sorts below the letter T,
+  // and even two genuinely-ISO values that landed within the same second
+  // (dateCreated and lastModified are both set from separate Date() calls
+  // microseconds apart when a task is first created) can misread as a
+  // real edit due to leftover millisecond jitter. This normalizes either
+  // shape into the same canonical, second-precision UTC ISO string so
+  // "same moment" reliably compares as equal rather than as one side
+  // winning by an accident of formatting.
+  function normalizeStamp(str) {
+    if (!str) return '';
+    var iso = str.indexOf('T') === -1 ? str.replace(' ', 'T') + 'Z' : str;
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return str;
+    return d.toISOString().slice(0, 19) + 'Z';
+  }
+
   // Checked first by uid, the stable identity described above, then by
   // content signature as a fallback for tombstones recorded before a peer
   // had adopted uid for that particular task. Either way, an incoming task
@@ -1762,8 +1784,9 @@
     var tomb = appData.tombstones || {};
     var record = (task.uid && tomb[task.uid]) || tomb[taskSignature(task)];
     if (!record) return false;
-    var taskStamp = task.lastModified || task.dateCreated || '';
-    if (taskStamp && record.taskDateCreated && taskStamp > record.taskDateCreated) {
+    var taskStamp = normalizeStamp(task.lastModified || task.dateCreated || '');
+    var tombStamp = normalizeStamp(record.taskDateCreated || '');
+    if (taskStamp && tombStamp && taskStamp > tombStamp) {
       return false;
     }
     return true;
@@ -1885,7 +1908,7 @@
 
         var incStamp   = inc.lastModified   || inc.dateCreated   || '';
         var matchStamp = match.lastModified || match.dateCreated || '';
-        if (incStamp > matchStamp) {
+        if (normalizeStamp(incStamp) > normalizeStamp(matchStamp)) {
           match.task         = inc.task;
           match.priority      = inc.priority;
           match.location      = inc.location;
