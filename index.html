@@ -1313,7 +1313,8 @@
       btn.addEventListener('click', function() {
         confirmDelete(
           parseInt(this.getAttribute('data-id')),
-          this.getAttribute('data-task')
+          this.getAttribute('data-task'),
+          'complete'
         );
       });
     });
@@ -1322,7 +1323,8 @@
       btn.addEventListener('click', function() {
         confirmDelete(
           parseInt(this.getAttribute('data-id')),
-          this.getAttribute('data-task')
+          this.getAttribute('data-task'),
+          'delete'
         );
       });
     });
@@ -1508,14 +1510,17 @@
   }
 
   // -- DELETE --
-  function confirmDelete(taskId, taskText) {
+  function confirmDelete(taskId, taskText, mode) {
     var overlay = document.createElement('div');
     overlay.className = 'overlay';
     var preview = taskText.length > 80 ? taskText.substring(0,80) + '\u2026' : taskText;
+    var isComplete = mode === 'complete';
+    var promptText = isComplete ? 'Mark this task completed?' : 'Delete this task?';
+    var actionLabel = isComplete ? 'Complete' : 'Delete';
     overlay.innerHTML = '<div class="confirm-box">' +
-      '<p>Delete this task?<br><br><strong>' + escHtml(preview) + '</strong></p>' +
+      '<p>' + promptText + '<br><br><strong>' + escHtml(preview) + '</strong></p>' +
       '<button class="cbtn cbtn-cancel">Cancel</button>' +
-      '<button class="cbtn cbtn-delete">Delete</button>' +
+      '<button class="cbtn cbtn-delete">' + actionLabel + '</button>' +
       '</div>';
     overlay.querySelector('.cbtn-cancel').addEventListener('click', function() {
       overlay.parentNode.removeChild(overlay);
