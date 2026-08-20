@@ -70,6 +70,10 @@ None of this requires anything from you. Tasks that predate this update don't ha
 
 Even with the merge logic fully correct, a change could still appear to revert for a much more mundane reason: `cloudPull()` originally hit the exact same URL, same base address, same passphrase query string, on every single call. That's precisely the shape of request browsers cache by default. If a pull happened to return a cached response from before a recent delete or edit instead of actually reaching the network, the merge would faithfully reconcile that stale snapshot back in, indistinguishable from a real conflict even though nothing about the matching or timestamp logic was at fault. This can happen with genuinely only one device or tab involved, since it's the browser's own HTTP cache doing this, not anything about sync coordination between devices. The fix appends a cache-busting timestamp to every pull URL and sets `cache: 'no-store'` on the fetch call, which together guarantee the browser never serves a cached response for a sync pull.
 
+### Updates
+
+2026-08-20 - Added Search Bar to Query Options
+
 ## Notes
 
 Repeat-rule parsing, due-today logic, and the calendar export were carried over largely unchanged from the original Apps Script version. What changed is the data layer: instead of two Google Doc tables (a task table and a state table) reached through `google.script.run`, everything now lives in one flat array of task objects, each carrying its own completion history and snooze date, read and written directly through `window.localStorage`, with the optional cloud sync layer described above reaching the same shape of data out to a separate, personally-owned Apps Script Web App over `fetch()`.
