@@ -262,6 +262,29 @@
   .task-card.pri-A      { border-left-color: #f39c12; }
   .task-card.pri-B      { border-left-color: #2ecc71; }
 
+  .task-card.dragging {
+    opacity: 0.85;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+    transition: none;
+  }
+
+  .drag-handle {
+    flex-shrink: 0;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    padding: 0 2px;
+    color: #666;
+    font-size: 16px;
+    line-height: 1;
+    cursor: grab;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .drag-handle:active { color: #f4b41a; cursor: grabbing; }
+
   .task-body { flex: 1; min-width: 0; }
 
   .task-text {
@@ -1176,6 +1199,23 @@
     return 6;
   }
 
+  // Any task without a sortOrder (existing tasks the first time this ships,
+  // or tasks that just arrived via import/merge/sync) gets one derived from
+  // dateCreated so the default order matches what the list looked like
+  // before drag reordering existed. Once a task has a sortOrder it is never
+  // touched here again; only a drag changes it after that.
+  function migrateSortOrder() {
+    var changed = false;
+    appData.tasks.forEach(function(t) {
+      if (typeof t.sortOrder !== 'number') {
+        var ts = Date.parse((t.dateCreated || '').replace(' ', 'T'));
+        t.sortOrder = isNaN(ts) ? 0 : -ts;
+        changed = true;
+      }
+    });
+    if (changed) saveData();
+  }
+
   function isTodaysDay(priority) {
     var days = ['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'];
     var todayName = days[new Date().getDay()];
@@ -1197,6 +1237,7 @@
   }
 
   function renderTasks() {
+    migrateSortOrder();
     var list  = document.getElementById('task-list');
     var today = todayStr();
 
@@ -1236,6 +1277,9 @@
       if (aDue !== bDue) return aDue - bDue;
       var priDiff = getPriorityOrder(a.priority) - getPriorityOrder(b.priority);
       if (priDiff !== 0) return priDiff;
+      var oa = typeof a.sortOrder === 'number' ? a.sortOrder : 0;
+      var ob = typeof b.sortOrder === 'number' ? b.sortOrder : 0;
+      if (oa !== ob) return oa - ob;
       var dateA = a.dateCreated || '', dateB = b.dateCreated || '';
       if (dateA < dateB) return 1;
       if (dateA > dateB) return -1;
@@ -1264,6 +1308,12 @@
       var isSnoozedNow = !!(snoozeUntil && today < snoozeUntil);
 
       var cardClass = dueToday ? 'task-card due-today' : 'task-card ' + priClass(t.priority);
+      var groupKey  = currentFilter === 'snoozed'
+        ? 'snoozed'
+        : (isRepeatDueToday(t) ? 0 : 1) + '_' + getPriorityOrder(t.priority);
+      var dragHandleHtml = currentFilter === 'snoozed'
+        ? ''
+        : '<span class="drag-handle" title="Drag to reorder">&#10495;</span>';
 
       var notesHtml  = (t.notes && t.notes !== 'N/A')
         ? '<div class="task-notes">' + escHtml(t.notes) + '</div>' : '';
@@ -1300,7 +1350,8 @@
         '<button class="ics-btn"  data-id="' + t.id + '">&#128197;</button>' +
         '</div>';
 
-      html += '<div class="' + cardClass + '">' +
+      html += '<div class="' + cardClass + '" data-id="' + t.id + '" data-group="' + groupKey + '">' +
+        dragHandleHtml +
         '<div class="task-body">' +
           '<div class="task-text">' + escHtml(t.task) + '</div>' +
           '<div class="task-meta">' +
@@ -1384,6 +1435,104 @@
         downloadIcs(t);
       });
     });
+
+    attachDragHandlers(list);
+  }
+
+  // -- DRAG TO REORDER --
+  // Reordering only ever swaps a card with its immediate neighbor that
+  // shares the same data-group (due-today status + priority band), so a
+  // drag can never jump a task out of its group. Position is tracked with
+  // a CSS transform driven by raw pointer delta, which stays correct even
+  // as the underlying DOM nodes get swapped mid-drag. On release the
+  // on-screen order for that group is written back as each task's
+  // sortOrder, which the render sort now uses as its tiebreaker.
+  var dragState = null;
+
+  function attachDragHandlers(list) {
+    list.querySelectorAll('.drag-handle').forEach(function(handle) {
+      handle.addEventListener('pointerdown', function(e) {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        var card = handle.closest('.task-card');
+        if (!card) return;
+        e.preventDefault();
+        dragState = {
+          card: card,
+          group: card.getAttribute('data-group'),
+          startY: e.clientY,
+          pointerId: e.pointerId,
+          handle: handle
+        };
+        card.classList.add('dragging');
+        card.style.position = 'relative';
+        card.style.zIndex = '10';
+        try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+        handle.addEventListener('pointermove', onDragMove);
+        handle.addEventListener('pointerup', onDragEnd);
+        handle.addEventListener('pointercancel', onDragEnd);
+      });
+    });
+  }
+
+  function groupCardsFor(card) {
+    var list = card.parentNode;
+    return Array.prototype.filter.call(list.children, function(c) {
+      return c.classList && c.classList.contains('task-card') &&
+        c.getAttribute('data-group') === card.getAttribute('data-group');
+    });
+  }
+
+  function onDragMove(e) {
+    if (!dragState) return;
+    var dy = e.clientY - dragState.startY;
+    dragState.card.style.transform = 'translateY(' + dy + 'px)';
+
+    var groupCards = groupCardsFor(dragState.card);
+    var idx = groupCards.indexOf(dragState.card);
+    var cardRect = dragState.card.getBoundingClientRect();
+    var cardCenter = cardRect.top + cardRect.height / 2;
+    var list = dragState.card.parentNode;
+
+    var next = groupCards[idx + 1];
+    if (next) {
+      var nr = next.getBoundingClientRect();
+      if (cardCenter > nr.top + nr.height / 2) {
+        list.insertBefore(next, dragState.card);
+        return;
+      }
+    }
+    var prev = groupCards[idx - 1];
+    if (prev) {
+      var pr = prev.getBoundingClientRect();
+      if (cardCenter < pr.top + pr.height / 2) {
+        list.insertBefore(dragState.card, prev);
+      }
+    }
+  }
+
+  function onDragEnd(e) {
+    if (!dragState) return;
+    var card   = dragState.card;
+    var handle = dragState.handle;
+
+    card.style.transform = '';
+    card.style.position  = '';
+    card.style.zIndex    = '';
+    card.classList.remove('dragging');
+
+    handle.removeEventListener('pointermove', onDragMove);
+    handle.removeEventListener('pointerup', onDragEnd);
+    handle.removeEventListener('pointercancel', onDragEnd);
+    try { handle.releasePointerCapture(dragState.pointerId); } catch (err) {}
+
+    var groupCards = groupCardsFor(card);
+    groupCards.forEach(function(c, i) {
+      var t = findTask(parseInt(c.getAttribute('data-id'), 10));
+      if (t) t.sortOrder = i * 10;
+    });
+    saveData();
+    dragState = null;
+    renderTasks();
   }
 
   function onSearchInput(el) {
